@@ -169,61 +169,53 @@ foreach ($packagePattern in $packagePatterns) {
     }
 }
 
-Write-Host "Do you want to enable .NET 3.5? (y/n)"
-$input = Read-Host
+# Loop until the user enters either 'y' or 'n'
+do {
+    "`n"
+    $input35 = Read-Host -Prompt "Do you want to enable .NET 3.5? (y/n)"
+    if ($input35 -eq 'y') {
+        # If the user entered 'y', enable .NET 3.5 using DISM
+        Write-Host "Enabling .NET 3.5..."
+        & 'dism'  "/image:$scratchDir" '/enable-feature' '/featurename:NetFX3' '/All' "/source:$($env:SystemDrive)\tiny11\sources\sxs" 
+        Write-Host ".NET 3.5 has been enabled."
+    }
+    elseif ($input -eq 'n') {
+        # If the user entered 'n', exit the loop
+        Write-Host "You chose not to enable .NET 3.5. Continuing..."
+        break
+    }
+    else {
+        # If the user entered anything other than 'y' or 'n', show an error message and loop again
+        Write-Host "Invalid input. Please enter 'y' to enable .NET 3.5 or 'n' to continue without enabling .NET 3.5.`n"
+    }
+} until ($input -in 'y', 'n')
 
-# Check the user's input
-if ($input -eq 'y') {
-    # If the user entered 'y', enable .NET 3.5 using DISM
-    Write-Host "Enabling .NET 3.5..."
-    & 'dism'  "/image:$scratchDir" '/enable-feature' '/featurename:NetFX3' '/All' "/source:$($env:SystemDrive)\tiny11\sources\sxs" 
-    Write-Host ".NET 3.5 has been enabled."
-}
-elseif ($input -eq 'n') {
-    # If the user entered 'n', exit the script
-    Write-Host "You chose not to enable .NET 3.5. Continuing..."
-}
-else {
-    # If the user entered anything other than 'y' or 'n', ask for input again
-    Write-Host "Invalid input. Please enter 'y' to enable .NET 3.5 or 'n' to continue without installing .net 3.5."
-}
 Write-Host "Removing Edge:"
 Remove-Item -Path "$mainOSDrive\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse -Force >null
 Remove-Item -Path "$mainOSDrive\scratchdir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse -Force >null
 Remove-Item -Path "$mainOSDrive\scratchdir\Program Files (x86)\Microsoft\EdgeCore" -Recurse -Force >null
-if ($architecture -eq 'amd64') {
-    $folderPath = Get-ChildItem -Path "$mainOSDrive\scratchdir\Windows\WinSxS" -Filter "amd64_microsoft-edge-webview_31bf3856ad364e35*" -Directory | Select-Object -ExpandProperty FullName
 
+if ($architecture) {
+    $folderPath = Get-ChildItem -Path "$mainOSDrive\scratchdir\Windows\WinSxS" -Filter "${architecture}_microsoft-edge-webview_31bf3856ad364e35*" -Directory | Select-Object -ExpandProperty FullName
     if ($folderPath) {
         & 'takeown' '/f' $folderPath '/r' >null
         & icacls $folderPath  "/grant" "$($adminGroup.Value):(F)" '/T' '/C' >null
-        Remove-Item -Path $folderPath -Recurse -Force >null
+        Remove-Item -Path $folderPath -Recurse -Force -ErrorAction SilentlyContinue
     } else {
         Write-Host "Folder not found."
-    }
-} elseif ($architecture -eq 'arm64') {
-    $folderPath = Get-ChildItem -Path "$mainOSDrive\scratchdir\Windows\WinSxS" -Filter "arm64_microsoft-edge-webview_31bf3856ad364e35*" -Directory | Select-Object -ExpandProperty FullName >null
-
-    if ($folderPath) {
-        & 'takeown' '/f' $folderPath '/r'>null
-        & icacls $folderPath  "/grant" "$($adminGroup.Value):(F)" '/T' '/C' >null
-        Remove-Item -Path $folderPath -Recurse -Force >null
-    } else {
-        Write-Host "Folder not found."
-    }
+}
 } else {
     Write-Host "Unknown architecture: $architecture"
 }
+
+Write-host "Removing EdgeWebView:"
 & 'takeown' '/f' "$mainOSDrive\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/r'
 & 'icacls' "$mainOSDrive\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/grant' "$($adminGroup.Value):(F)" '/T' '/C'
 Remove-Item -Path "$mainOSDrive\scratchdir\Windows\System32\Microsoft-Edge-Webview" -Recurse -Force
-Write-Host "Removing WinRE"
+Write-Host "Removing WinRE:"
 & 'takeown' '/f' "$mainOSDrive\scratchdir\Windows\System32\Recovery" '/r'
 & 'icacls' "$mainOSDrive\scratchdir\Windows\System32\Recovery" '/grant' 'Administrators:F' '/T' '/C'
 Remove-Item -Path "$mainOSDrive\scratchdir\Windows\System32\Recovery" -Recurse -Force
-& 'takeown' '/f' "$mainOSDrive\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/r' >null
-& 'icacls' "$mainOSDrive\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' >null
-Remove-Item -Path "$mainOSDrive\scratchdir\Windows\System32\Microsoft-Edge-Webview" -Recurse -Force >null
 Write-Host "Removing OneDrive:"
 & 'takeown' '/f' "$mainOSDrive\scratchdir\Windows\System32\OneDriveSetup.exe" >null
 & 'icacls' "$mainOSDrive\scratchdir\Windows\System32\OneDriveSetup.exe" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' >null
@@ -232,8 +224,8 @@ Write-Host "Removal complete!"
 Start-Sleep -Seconds 2
 Clear-Host
 Write-Host "Taking ownership of the WinSxS folder. This might take a while..."
-& 'takeown' '/f' "$mainOSDrive\scratchdir\Windows\WinSxS" '/r'
-& 'icacls' "$mainOSDrive\scratchdir\Windows\WinSxS" '/grant' "$($adminGroup.Value):(F)" '/T' '/C'
+& 'takeown' '/f' "$mainOSDrive\scratchdir\Windows\WinSxS" '/r' >null
+& 'icacls' "$mainOSDrive\scratchdir\Windows\WinSxS" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' >null
 Write-host "Complete!"
 Start-Sleep -Seconds 2
 Clear-Host
@@ -275,18 +267,8 @@ if ($architecture -eq "amd64") {
         "Manifests",
         "x86_microsoft.vc80.crt_1fc8b3b9a1e18e3b_*",
         "x86_microsoft.vc90.crt_1fc8b3b9a1e18e3b_*",
-        "x86_microsoft.windows.c..-controls.resources_6595b64144ccf1df_*",
         "x86_microsoft.windows.c..-controls.resources_6595b64144ccf1df_*"
     )
- # Copy each directory
-   foreach ($dir in $dirsToCopy) {
-        $sourceDirs = Get-ChildItem -Path $sourceDirectory -Filter $dir -Directory
-        foreach ($sourceDir in $sourceDirs) {
-            $destDir = Join-Path -Path $destinationDirectory -ChildPath $sourceDir.Name
-            Write-Host "Copying $sourceDir.FullName to $destDir"
-            Copy-Item -Path $sourceDir.FullName -Destination $destDir -Recurse -Force
-        }
-    }
 }
  elseif ($architecture -eq "arm64") {
     # Specify the list of files to copy
@@ -326,18 +308,20 @@ if ($architecture -eq "amd64") {
         "arm64_microsoft-windows-servicingstack-msg_31bf3856ad364e35_*"
     )
 }
+
+# Copy each directory
 foreach ($dir in $dirsToCopy) {
-        $sourceDirs = Get-ChildItem -Path $sourceDirectory -Filter $dir -Directory
-        foreach ($sourceDir in $sourceDirs) {
-            $destDir = Join-Path -Path $destinationDirectory -ChildPath $sourceDir.Name
-            Write-Host "Copying $sourceDir.FullName to $destDir"
-            Copy-Item -Path $sourceDir.FullName -Destination $destDir -Recurse -Force
-        }
-    }  
+    $sourceDirs = Get-ChildItem -Path $sourceDirectory -Filter $dir -Directory
+    foreach ($sourceDir in $sourceDirs) {
+        $destDir = Join-Path -Path $destinationDirectory -ChildPath $sourceDir.Name
+        Write-Host "Copying $sourceDir.FullName to $destDir"
+        Copy-Item -Path $sourceDir.FullName -Destination $destDir -Recurse -Force
+    }
+}  
 
 
 Write-Host "Deleting WinSxS. This may take a while..."
-        Remove-Item -Path $mainOSDrive\scratchdir\Windows\WinSxS -Recurse -Force
+Remove-Item -Path $mainOSDrive\scratchdir\Windows\WinSxS -Recurse -Force
 
 Rename-Item -Path $mainOSDrive\scratchdir\Windows\WinSxS_edit -NewName $mainOSDrive\scratchdir\Windows\WinSxS
 Write-Host "Complete!"
