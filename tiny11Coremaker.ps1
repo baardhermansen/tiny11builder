@@ -3,9 +3,9 @@
 
 # Check if PowerShell execution is restricted
 if ((Get-ExecutionPolicy) -eq 'Restricted') {
-    Write-Host "Your current PowerShell Execution Policy is set to Restricted, which prevents scripts from running. Do you want to change it to RemoteSigned? (yes/no)"
-    $response = Read-Host
-    if ($response -eq 'yes') {
+    Write-Host "Your current PowerShell Execution Policy is set to Restricted, which prevents scripts from running."
+    $response = Read-Host "Do you want to change it to RemoteSigned? (yes/no)"
+    if ($response -in 'yes', 'y') {
         Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Confirm:$false
     } else {
         Write-Host "The script cannot be run without changing the execution policy. Exiting..."
@@ -28,32 +28,44 @@ if (! $myWindowsPrincipal.IsInRole($adminRole))
     [System.Diagnostics.Process]::Start($newProcess);
     exit
 }
-Start-Transcript -Path "$PSScriptRoot\tiny11.log" 
-# Ask the user for input
-Write-Host "Welcome to tiny11 core builder! BETA 05-06-24"
-Write-Host "This script generates a significantly reduced Windows 11 image. However, it's not suitable for regular use due to its lack of serviceability - you can't add languages, updates, or features post-creation. tiny11 Core is not a full Windows 11 substitute but a rapid testing or development tool, potentially useful for VM environments."
-Write-Host "Do you want to continue? (y/n)"
-$input = Read-Host
 
-if ($input -eq 'y') {
-    Write-Host "Off we go..."
+# Welcome message
+Write-Host "Welcome to tiny11 core builder! BETA 05-06-24"
+Write-Host "This script generates a significantly reduced Windows 11 image."
+Write-Host "However, it's not suitable for regular use due to its lack of serviceability - you can't add languages, updates, or features post-creation."
+Write-Host "tiny11 Core is not a full Windows 11 substitute but a rapid testing or development tool, potentially useful for VM environments.`n"
+
+# Ensure user wants to continue, if not exit
+$inputContinue = Read-Host -Prompt "Do you want to continue? (y/n)"
+if ($inputContinue -ne 'y') {
+    Write-Host "You didn't enter 'y'. The script will now exit."
+    exit
+}
+
 Start-Sleep -Seconds 3
 Clear-Host
+Start-Transcript -Path "$PSScriptRoot\tiny11.log"
 
+# Set variables
 $mainOSDrive = $env:SystemDrive
+$scratchDir = "$mainOSDrive\scratchdir"
 $hostArchitecture = $Env:PROCESSOR_ARCHITECTURE
-New-Item -ItemType Directory -Force -Path "$mainOSDrive\tiny11\sources" >null
-$DriveLetter = Read-Host "Please enter the drive letter for the Windows 11 image"
-$DriveLetter = $DriveLetter + ":"
+New-Item -ItemType Directory -Force -Path "$mainOSDrive\tiny11" | Out-Null
 
-if ((Test-Path "$DriveLetter\sources\boot.wim") -eq $false -or (Test-Path "$DriveLetter\sources\install.wim") -eq $false) {
-    if ((Test-Path "$DriveLetter\sources\install.esd") -eq $true) {
-        Write-Host "Found install.esd, converting to install.wim..."
-        &  'dism' '/English' "/Get-WimInfo" "/wimfile:$DriveLetter\sources\install.esd"
+# Get the drive letter for the mounted Windows 11 ISO
+$driveLetter = Read-Host "Please enter the drive letter for the mounted Windows 11 image"
+# In case user enters more than just the drive letter, strip the rest and add a colon
+$driveLetter = $driveLetter.Substring(0, 1) + ":"
+
+# Test if wim files exist, if not, convert esd to wim
+if ((Test-Path "$driveLetter\sources\boot.wim") -eq $false -or (Test-Path "$driveLetter\sources\install.wim") -eq $false) {
+    if ((Test-Path "$driveLetter\sources\install.esd") -eq $true) {
+        Write-Host "Found install.esd file."
+        &  'dism' '/English' "/Get-WimInfo" "/wimfile:$driveLetter\sources\install.esd"
         $index = Read-Host "Please enter the image index"
         Write-Host ' '
         Write-Host 'Converting install.esd to install.wim. This may take a while...'
-        & 'DISM' /Export-Image /SourceImageFile:"$DriveLetter\sources\install.esd" /SourceIndex:$index /DestinationImageFile:"$mainOSDrive\tiny11\sources\install.wim" /Compress:max /CheckIntegrity
+        & 'DISM' /Export-Image /SourceImageFile:"$driveLetter\sources\install.esd" /SourceIndex:$index /DestinationImageFile:"$mainOSDrive\tiny11\sources\install.wim" /Compress:max /CheckIntegrity
     } else {
         Write-Host "Can't find Windows OS Installation files in the specified Drive Letter.."
         Write-Host "Please enter the correct DVD Drive Letter.."
@@ -62,7 +74,7 @@ if ((Test-Path "$DriveLetter\sources\boot.wim") -eq $false -or (Test-Path "$Driv
 }
 
 Write-Host "Copying Windows image..."
-Copy-Item -Path "$DriveLetter\*" -Destination "$mainOSDrive\tiny11" -Recurse -Force > null
+Copy-Item -Path "$driveLetter\*" -Destination "$mainOSDrive\tiny11" -Recurse -Force > null
 Set-ItemProperty -Path "$mainOSDrive\tiny11\sources\install.esd" -Name IsReadOnly -Value $false > $null 2>&1
 Remove-Item "$mainOSDrive\tiny11\sources\install.esd" > $null 2>&1
 Write-Host "Copy complete!"
@@ -135,7 +147,6 @@ Write-Host "Removing of system apps complete! Now proceeding to removal of syste
 Start-Sleep -Seconds 1
 Clear-Host
 
-$scratchDir = "$($env:SystemDrive)\scratchdir"
 $packagePatterns = @(
     "Microsoft-Windows-InternetExplorer-Optional-Package~31bf3856ad364e35",
     "Microsoft-Windows-Kernel-LA57-FoD-Package~31bf3856ad364e35~amd64",
@@ -179,7 +190,7 @@ do {
         & 'dism'  "/image:$scratchDir" '/enable-feature' '/featurename:NetFX3' '/All' "/source:$($env:SystemDrive)\tiny11\sources\sxs" 
         Write-Host ".NET 3.5 has been enabled."
     }
-    elseif ($input -eq 'n') {
+    elseif ($input35 -eq 'n') {
         # If the user entered 'n', exit the loop
         Write-Host "You chose not to enable .NET 3.5. Continuing..."
         break
@@ -188,7 +199,7 @@ do {
         # If the user entered anything other than 'y' or 'n', show an error message and loop again
         Write-Host "Invalid input. Please enter 'y' to enable .NET 3.5 or 'n' to continue without enabling .NET 3.5.`n"
     }
-} until ($input -in 'y', 'n')
+} until ($input35 -in 'y', 'n')
 
 Write-Host "Removing Edge:"
 Remove-Item -Path "$mainOSDrive\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse -Force >null
@@ -205,7 +216,7 @@ if ($architecture) {
         Write-Host "Folder not found."
 }
 } else {
-    Write-Host "Unknown architecture: $architecture"
+    Write-Host "Unknown architecture: $(if ($null -eq $architecture) {'<blank>'} else {$architecture})"
 }
 
 Write-host "Removing EdgeWebView:"
@@ -755,11 +766,3 @@ Remove-Item -Path "$mainOSDrive\scratchdir" -Recurse -Force >null
 Stop-Transcript
 
 exit
-}
-elseif ($input -eq 'n') {
-    Write-Host "You chose not to continue. The script will now exit."
-    exit
-}
-else {
-    Write-Host "Invalid input. Please enter 'y' to continue or 'n' to exit."
-}
