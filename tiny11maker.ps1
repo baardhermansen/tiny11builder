@@ -491,5 +491,3 @@ Remove-Item -Path "$scratchDir" -Recurse -Force | Out-Null
 
 # Stop the transcript
 Stop-Transcript
-
-exit

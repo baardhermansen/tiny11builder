@@ -448,7 +448,7 @@ Write-Host "Disabling bing in Start Menu:"
 & 'reg' 'add' 'HKLM\zNTUSER\Software\Policies\Microsoft\Windows\Explorer' '/v' 'ShowRunAsDifferentUserInStart' '/t' 'REG_DWORD' '/d' '1' '/f' >null
 & 'reg' 'add' 'HKLM\zNTUSER\Software\Policies\Microsoft\Windows\Explorer' '/v' 'DisableSearchBoxSuggestions' '/t' 'REG_DWORD' '/d' '1' '/f' >null
 ## this function allows PowerShell to take ownership of the Scheduled Tasks registry key from TrustedInstaller. Based on Jose Espitia's script.
-function Enable-Privilege {
+function Set-Privilege {
     param(
         [ValidateSet(
             "SeAssignPrimaryTokenPrivilege", "SeAuditPrivilege", "SeBackupPrivilege",
@@ -523,7 +523,7 @@ function Enable-Privilege {
     $type[0]::EnablePrivilege($processHandle, $Privilege, $Disable)
 }
 
-Enable-Privilege SeTakeOwnershipPrivilege
+Set-Privilege -Privilege SeTakeOwnershipPrivilege
 
 $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks", [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [System.Security.AccessControl.RegistryRights]::TakeOwnership)
 $regACL = $regKey.GetAccessControl()
@@ -567,82 +567,7 @@ Write-Host "Disabling Windows Update..."
 & 'reg' 'add' 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' '/v' 'UseWUServer' '/t' 'REG_DWORD' '/d' '1' '/f' >null
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE' '/v' 'DisableOnline' '/t' 'REG_DWORD' '/d' '1' '/f' >null
 & 'reg' 'add' 'HKLM\zSYSTEM\ControlSet001\Services\wuauserv' '/v' 'Start' '/t' 'REG_DWORD' '/d' '4' '/f' >null
-function Disable-Privilege {
-    param(
-        [ValidateSet(
-            "SeAssignPrimaryTokenPrivilege", "SeAuditPrivilege", "SeBackupPrivilege",
-            "SeChangeNotifyPrivilege", "SeCreateGlobalPrivilege", "SeCreatePagefilePrivilege",
-            "SeCreatePermanentPrivilege", "SeCreateSymbolicLinkPrivilege", "SeCreateTokenPrivilege",
-            "SeDebugPrivilege", "SeEnableDelegationPrivilege", "SeImpersonatePrivilege", "SeIncreaseBasePriorityPrivilege",
-            "SeIncreaseQuotaPrivilege", "SeIncreaseWorkingSetPrivilege", "SeLoadDriverPrivilege",
-            "SeLockMemoryPrivilege", "SeMachineAccountPrivilege", "SeManageVolumePrivilege",
-            "SeProfileSingleProcessPrivilege", "SeRelabelPrivilege", "SeRemoteShutdownPrivilege",
-            "SeRestorePrivilege", "SeSecurityPrivilege", "SeShutdownPrivilege", "SeSyncAgentPrivilege",
-            "SeSystemEnvironmentPrivilege", "SeSystemProfilePrivilege", "SeSystemtimePrivilege",
-            "SeTakeOwnershipPrivilege", "SeTcbPrivilege", "SeTimeZonePrivilege", "SeTrustedCredManAccessPrivilege",
-            "SeUndockPrivilege", "SeUnsolicitedInputPrivilege")]
-        $Privilege,
-        ## The process on which to adjust the privilege. Defaults to the current process.
-        $ProcessId = $pid,
-        ## Switch to disable the privilege, rather than enable it.
-        [Switch] $Disable
-    )
-    $definition = @'
- using System;
- using System.Runtime.InteropServices;
-  
- public class AdjPriv
- {
-  [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
-  internal static extern bool AdjustTokenPrivileges(IntPtr htok, bool disall,
-   ref TokPriv1Luid newst, int len, IntPtr prev, IntPtr relen);
-  
-  [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
-  internal static extern bool OpenProcessToken(IntPtr h, int acc, ref IntPtr phtok);
-  [DllImport("advapi32.dll", SetLastError = true)]
-  internal static extern bool LookupPrivilegeValue(string host, string name, ref long pluid);
-  [StructLayout(LayoutKind.Sequential, Pack = 1)]
-  internal struct TokPriv1Luid
-  {
-   public int Count;
-   public long Luid;
-   public int Attr;
-  }
-  
-  internal const int SE_PRIVILEGE_ENABLED = 0x00000002;
-  internal const int SE_PRIVILEGE_DISABLED = 0x00000000;
-  internal const int TOKEN_QUERY = 0x00000008;
-  internal const int TOKEN_ADJUST_PRIVILEGES = 0x00000020;
-  public static bool EnablePrivilege(long processHandle, string privilege, bool disable)
-  {
-   bool retVal;
-   TokPriv1Luid tp;
-   IntPtr hproc = new IntPtr(processHandle);
-   IntPtr htok = IntPtr.Zero;
-   retVal = OpenProcessToken(hproc, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, ref htok);
-   tp.Count = 1;
-   tp.Luid = 0;
-   if(disable)
-   {
-    tp.Attr = SE_PRIVILEGE_DISABLED;
-   }
-   else
-   {
-    tp.Attr = SE_PRIVILEGE_ENABLED;
-   }
-   retVal = LookupPrivilegeValue(null, privilege, ref tp.Luid);
-   retVal = AdjustTokenPrivileges(htok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
-   return retVal;
-  }
- }
-'@
 
-    $processHandle = (Get-Process -id $ProcessId).Handle
-    $type = Add-Type $definition -PassThru
-    $type[0]::EnablePrivilege($processHandle, $Privilege, $Disable)
-}
-
-Disable-Privilege SeTakeOwnershipPrivilege -Disable
 $everyone = New-Object System.Security.Principal.NTAccount('Everyone')
 #$accessRule = New-Object System.Security.AccessControl.RegistryAccessRule($everyone, 'ReadKey', 'Allow')
 $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("zSYSTEM\ControlSet001\Services\wuauserv", [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [System.Security.AccessControl.RegistryRights]::TakeOwnership)
@@ -657,8 +582,6 @@ $regACL.SetAccessRule($regRule)
 $regKey.SetAccessControl($regACL)
 Write-Host "Permissions modified for Everyone group."
 Write-Host "Registry key permissions successfully updated."
-
-
 Write-Host "All users have been granted read-only access to the registry key."
 $regKey.Close()
 & 'reg' 'delete' "HKEY_LOCAL_MACHINE\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{2540477E-E654-4302-AD44-383BBFFBFF16}" '/f'
@@ -677,6 +600,7 @@ $regKey.Close()
 & 'reg' 'delete' 'HKLM\zSYSTEM\ControlSet001\Services\WaaSMedicSVC' '/f'
 & 'reg' 'delete' 'HKLM\zSYSTEM\ControlSet001\Services\UsoSvc' '/f'
 & 'reg' 'add' 'HKEY_LOCAL_MACHINE\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' '/v' 'NoAutoUpdate' '/t' 'REG_DWORD' '/d' '1' '/f'
+
 Write-Host "Disabling Windows Defender"
 # Set registry values for Windows Defender services
 $servicePaths = @(
@@ -745,6 +669,8 @@ reg unload HKLM\zSOFTWARE
 reg unload HKLM\zSYSTEM >null
 Write-Host "Unmounting image..."
 & 'dism' '/English' '/unmount-image' "/mountdir:$scratchDir" '/commit'
+Set-Privilege -Privilege SeTakeOwnershipPrivilege -Disable
+
 Clear-Host
 Write-Host "Exporting ESD. This may take a while..."
 & dism /Export-Image /SourceImageFile:"$wimFilePath" /SourceIndex:1 /DestinationImageFile:"$tinyFolder\sources\install.esd" /Compress:recovery
@@ -796,5 +722,3 @@ Remove-Item -Path "$scratchDir" -Recurse -Force | Out-Null
 
 # Stop the transcript
 Stop-Transcript
-
-exit
