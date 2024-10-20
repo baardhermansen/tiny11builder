@@ -42,26 +42,19 @@ Clear-Host
 Write-Host "Welcome to the tiny11 image creator! Release: 05-06-24"
 
 # Set variables
-$scratchDir = "$scratchDir"
-$tinyFolder = "$tinyFolder"
+$scratchDir = "$ScratchDisk\scratchdir"
+$tinyFolder = "$ScratchDisk\tiny11"
 $hostArchitecture = $Env:PROCESSOR_ARCHITECTURE
 
 # Get DVD drive(s), since mounted ISOs show as CD-ROM
-$potentialDLs = Get-Volume | Where-Object { ($PSItem.DriveType -eq "cd-rom") -and ($PSItem.OperationalStatus -EQ "OK") }
+$potentialDLs = Get-Volume | Where-Object { ($PSItem.DriveType -eq "CD-ROM") -and ($Null -ne $PSItem.DriveLetter) } | Sort-Object DriveLetter
 if ($potentialDLs) {
     "Found one or more CD-ROM drives with a Windows image in them."
+    "Drive letter - Volume label"
     foreach ($potentialDL in $potentialDLs) {
-        $response = Read-Host -Prompt "Is $($potentialDL.DriveLetter): the correct drive [y/n]?"
-        #$response = Read-Host
-        if ($response -in 'y', 'yes') {
-            [string]$driveLetter = $potentialDL.DriveLetter
-            break
-        }
+        "$($potentialDL.DriveLetter): - '$($potentialDL.FileSystemLabel)'"
     }
-    if (-not $driveLetter) {
-        "Please enter the correct DVD drive letter."
-        $driveLetter = Read-Host "Correct drive letter"
-    }
+    $driveLetter = Read-Host -Prompt "Type the correct drive letter"
 }
 else {
     $driveLetter = Read-Host "Please enter the drive letter for the mounted Windows iso"
@@ -115,7 +108,6 @@ New-Item -ItemType Directory -Force -Path $scratchDir | Out-Null
 
 $imageIntl = & dism /English /Get-Intl "/Image:$scratchDir"
 $languageLine = $imageIntl -split '\n' | Where-Object { $_ -match 'Default system UI language : ([a-zA-Z]{2}-[a-zA-Z]{2})' }
-
 if ($languageLine) {
     $languageCode = $Matches[1]
     Write-Host "Default system UI language code: $languageCode"
@@ -125,7 +117,6 @@ if ($languageLine) {
 
 $imageInfo = & 'dism' '/English' '/Get-WimInfo' "/wimFile:$wimFilePath" "/index:$index"
 $lines = $imageInfo -split '\r?\n'
-
 foreach ($line in $lines) {
     if ($line -like '*Architecture : *') {
         $architecture = $line -replace 'Architecture : ',''
@@ -137,20 +128,20 @@ foreach ($line in $lines) {
         break
     }
 }
-
 if (-not $architecture) {
     Write-Host "Architecture information not found."
 }
 
 Write-Host "Mounting complete! Performing removal of applications..."
-
 $packages = & 'dism' '/English' "/image:$scratchDir" '/Get-ProvisionedAppxPackages' |
     ForEach-Object {
         if ($_ -match 'PackageName : (.*)') {
             $matches[1]
         }
     }
-$packagePrefixes = @( 
+
+# Remmed out packages that are removed in tiny11core, otherwise the lists are equal
+    $packagePrefixes = @( 
     'Clipchamp.Clipchamp_',
     #'Microsoft.SecHealthUI_',
     #'Microsoft.Windows.PeopleExperienceHost_',
@@ -193,7 +184,6 @@ foreach ($package in $packagesToRemove) {
     & 'dism' '/English' "/image:$scratchDir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package"
 }
 
-
 Write-Host "Removing Edge:"
 Remove-Item -Path "$scratchDir\Program Files (x86)\Microsoft\Edge" -Recurse -Force | Out-Null
 Remove-Item -Path "$scratchDir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse -Force | Out-Null
@@ -221,12 +211,11 @@ $baseFolder = "$scratchDir\Windows\System32"
     & 'icacls' $_ '/grant' "${env:username}:(F)" '/T' '/C' >null
     Remove-Item -Path $_ -Recurse -Force | Out-Null
 }
-
 Write-Host "Removal complete!"
 Start-Sleep -Seconds 2
+
 Clear-Host
 Write-Host "Loading registry..."
-reg load HKLM\zCOMPONENTS $scratchDir\Windows\System32\config\COMPONENTS >null
 reg load HKLM\zDEFAULT $scratchDir\Windows\System32\config\default >null
 reg load HKLM\zNTUSER $scratchDir\Users\Default\ntuser.dat >null
 reg load HKLM\zSOFTWARE $scratchDir\Windows\System32\config\SOFTWARE >null
@@ -274,7 +263,7 @@ Write-Host "Disabling Sponsored Apps:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' '/v' 'DisableCloudOptimizedContent' '/t' 'REG_DWORD' '/d' '1' '/f' >null
 Write-Host "Enabling Local Accounts on OOBE:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE' '/v' 'BypassNRO' '/t' 'REG_DWORD' '/d' '1' '/f' >null
-Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$scratchDir\Windows\System32\Sysprep\autounattend.xml" -Force >null
+Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$scratchDir\Windows\System32\Sysprep\autounattend.xml" -Force | Out-Null
 Write-Host "Disabling Reserved Storage:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager' '/v' 'ShippedWithReserves' '/t' 'REG_DWORD' '/d' '0' '/f' >null
 Write-Host "Disabling BitLocker Device Encryption"
@@ -299,7 +288,7 @@ Write-Host "Disabling Telemetry:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' '/v' 'AllowTelemetry' '/t' 'REG_DWORD' '/d' '0' '/f' >null
 & 'reg' 'add' 'HKLM\zSYSTEM\ControlSet001\Services\dmwappushservice' '/v' 'Start' '/t' 'REG_DWORD' '/d' '4' '/f' >null
 ## this function allows PowerShell to take ownership of the Scheduled Tasks registry key from TrustedInstaller. Based on Jose Espitia's script.
-function Enable-Privilege {
+function Set-Privilege {
  param(
   [ValidateSet(
    "SeAssignPrimaryTokenPrivilege", "SeAuditPrivilege", "SeBackupPrivilege",
@@ -374,7 +363,7 @@ function Enable-Privilege {
  $type[0]::EnablePrivilege($processHandle, $Privilege, $Disable)
 }
 
-Enable-Privilege SeTakeOwnershipPrivilege
+Set-Privilege -Privilege SeTakeOwnershipPrivilege
 
 $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks",[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,[System.Security.AccessControl.RegistryRights]::TakeOwnership)
 $regACL = $regKey.GetAccessControl()
@@ -407,11 +396,9 @@ reg delete "HKEY_LOCAL_MACHINE\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\Sch
 Write-Host "Tweaking complete!"
 Write-Host "Unmounting Registry..."
 $regKey.Close()
-reg unload HKLM\zCOMPONENTS >null
 reg unload HKLM\zDEFAULT >null
 reg unload HKLM\zNTUSER >null
-reg unload HKLM\zSCHEMA >null
-reg unload HKLM\zSOFTWARE
+reg unload HKLM\zSOFTWARE >null
 reg unload HKLM\zSYSTEM >null
 Write-Host "Cleaning up image..."
 & 'dism' '/English' "/image:$scratchDir" '/Cleanup-Image' '/StartComponentCleanup' '/ResetBase' >null
@@ -421,24 +408,24 @@ Write-Host "Unmounting image..."
 & 'dism' '/English' '/unmount-image' "/mountdir:$scratchDir" '/commit'
 Write-Host "Exporting image..."
 & 'dism' '/English' '/Export-Image' "/SourceImageFile:$tinyFolder\sources\install.wim" "/SourceIndex:$index" "/DestinationImageFile:$tinyFolder\sources\install2.wim" '/compress:recovery'
-Remove-Item -Path "$tinyFolder\sources\install.wim" -Force >null
-Rename-Item -Path "$tinyFolder\sources\install2.wim" -NewName "install.wim" >null
+Remove-Item -Path "$tinyFolder\sources\install.wim" -Force | Out-Null
+Rename-Item -Path "$tinyFolder\sources\install2.wim" -NewName "install.wim" | Out-Null
 Write-Host "Windows image completed. Continuing with boot.wim."
 Start-Sleep -Seconds 2
 Clear-Host
+
 Write-Host "Mounting boot image:"
-$wimFilePath = "$($env:SystemDrive)\tiny11\sources\boot.wim" 
+$wimFilePath = "$tinyFolder\sources\boot.wim" 
 & takeown "/F" $wimFilePath >null
 & icacls $wimFilePath "/grant" "$($adminGroup.Value):(F)"
 Set-ItemProperty -Path $wimFilePath -Name IsReadOnly -Value $false
-& 'dism' '/English' '/mount-image' "/imagefile:$tinyFolder\sources\boot.wim" '/index:2' "/mountdir:$scratchDir"
+& 'dism' '/English' '/mount-image' "/imagefile:$wimFilePath" '/index:2' "/mountdir:$scratchDir"
 Write-Host "Loading registry..."
-reg load HKLM\zCOMPONENTS $scratchDir\Windows\System32\config\COMPONENTS
 reg load HKLM\zDEFAULT $scratchDir\Windows\System32\config\default
 reg load HKLM\zNTUSER $scratchDir\Users\Default\ntuser.dat
 reg load HKLM\zSOFTWARE $scratchDir\Windows\System32\config\SOFTWARE
 reg load HKLM\zSYSTEM $scratchDir\Windows\System32\config\SYSTEM
-Write-Host "Bypassing system requirements(on the setup image):"
+Write-Host "Bypassing system requirements (on the setup image):"
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV1' '/t' 'REG_DWORD' '/d' '0' '/f' >null
 & 'reg' 'add' 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV2' '/t' 'REG_DWORD' '/d' '0' '/f' >null
 & 'reg' 'add' 'HKLM\zNTUSER\Control Panel\UnsupportedHardwareNotificationCache' '/v' 'SV1' '/t' 'REG_DWORD' '/d' '0' '/f' >null
@@ -452,21 +439,23 @@ Write-Host "Bypassing system requirements(on the setup image):"
 Write-Host "Tweaking complete!"
 Write-Host "Unmounting Registry..."
 $regKey.Close()
-reg unload HKLM\zCOMPONENTS >null
 reg unload HKLM\zDEFAULT >null
 reg unload HKLM\zNTUSER >null
 reg unload HKLM\zSOFTWARE
 reg unload HKLM\zSYSTEM >null
+
+Set-Privilege -Privilege SeTakeOwnershipPrivilege -Disable
+
 Write-Host "Unmounting image..."
 & 'dism' '/English' '/unmount-image' "/mountdir:$scratchDir" '/commit'
 Clear-Host
 Write-Host "The tiny11 image is now completed. Proceeding with the making of the ISO..."
 Write-Host "Copying unattended file for bypassing MS account on OOBE..."
 Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$tinyFolder\autounattend.xml" -Force | Out-Null
+
 Write-Host "Creating ISO image..."
 $ADKDepTools = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\$hostarchitecture\Oscdimg"
 $localOSCDIMGPath = "$PSScriptRoot\oscdimg.exe"
-
 if ([System.IO.Directory]::Exists($ADKDepTools)) {
     Write-Host "Will be using oscdimg.exe from system ADK."
     $OSCDIMG = "$ADKDepTools\oscdimg.exe"
