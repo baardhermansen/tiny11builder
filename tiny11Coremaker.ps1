@@ -52,21 +52,14 @@ $tinyFolder = "$mainOSDrive\tiny11"
 $hostArchitecture = $Env:PROCESSOR_ARCHITECTURE
 
 # Get DVD drive(s), since mounted ISOs show as CD-ROM
-$potentialDLs = Get-Volume | Where-Object { ($PSItem.DriveType -eq "cd-rom") -and ($PSItem.OperationalStatus -EQ "OK") }
+$potentialDLs = Get-Volume | Where-Object { ($PSItem.DriveType -eq "CD-ROM") -and ($Null -ne $PSItem.DriveLetter) } | Sort-Object DriveLetter
 if ($potentialDLs) {
     "Found one or more CD-ROM drives with a Windows image in them."
+    "Drive letter - Volume label"
     foreach ($potentialDL in $potentialDLs) {
-        $response = Read-Host -Prompt "Is $($potentialDL.DriveLetter): the correct drive [y/n]?"
-        #$response = Read-Host
-        if ($response -in 'y', 'yes') {
-            [string]$driveLetter = $potentialDL.DriveLetter
-            break
-        }
+        "$($potentialDL.DriveLetter): - '$($potentialDL.FileSystemLabel)'"
     }
-    if (-not $driveLetter) {
-        "Please enter the correct DVD drive letter."
-        $driveLetter = Read-Host "Correct drive letter"
-    }
+    $driveLetter = Read-Host -Prompt "Type the correct drive letter"
 }
 else {
     $driveLetter = Read-Host "Please enter the drive letter for the mounted Windows iso"
